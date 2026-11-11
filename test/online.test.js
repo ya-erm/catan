@@ -61,6 +61,11 @@ test('Pages origin can use credentialed API requests and migrate room cookies', 
   assert.equal((await resumed.json()).me, 0);
   assert.equal(resumed.headers.get('access-control-allow-origin'), origin);
   assert.ok(resumed.headers.getSetCookie().some(value => value.includes('Domain=catan.ya-erm.ru')));
+  const stream = await fetch(`${f.origin}/api/rooms/${room.id}/events`, { headers: { Origin: origin, Cookie: cookie } });
+  assert.equal(stream.status, 200);
+  assert.equal(stream.headers.get('access-control-allow-origin'), origin);
+  assert.equal(stream.headers.get('access-control-allow-credentials'), 'true');
+  await stream.body.cancel();
   const blocked = await fetch(`${f.origin}/api/rooms`, { method: 'OPTIONS', headers: { Origin: 'https://other.example' } });
   assert.equal(blocked.status, 403);
   assert.equal(blocked.headers.get('access-control-allow-origin'), null);
