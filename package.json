@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "build:pages": "node scripts/build-pages.mjs",
     "check": "node --check app.js && node --check game.js && node --check bot.js && node --check hotseat.js && node --check local-save.js && node --check local-saves.js && node --check server.js",
     "test": "node --test test/*.test.js"
   }

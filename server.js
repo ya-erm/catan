@@ -38,7 +38,8 @@ async function readBody(req) {
   } catch { fail(400, 'Некорректный запрос.'); }
 }
 
-export function createApp({ dataDir = join(ROOT, 'data'), publicDir = ROOT, secureCookies = false, publicOrigin = '', die = () => randomInt(1, 7) } = {}) {
+export function createApp({ dataDir = join(ROOT, 'data'), publicDir = ROOT, secureCookies = false, publicOrigin = '', cookieDomain = '', die = () => randomInt(1, 7) } = {}) {
+  if (cookieDomain && !/^[a-z0-9.-]+$/.test(cookieDomain)) throw new Error('Invalid cookie domain');
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const rooms = new Map();
   const streams = new Map();
@@ -96,7 +97,11 @@ export function createApp({ dataDir = join(ROOT, 'data'), publicDir = ROOT, secu
   }
   function setSession(req, res) {
     const token = sessionToken(req) || randomBytes(32).toString('base64url');
-    res.setHeader('Set-Cookie', `catan_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secureCookies ? '; Secure' : ''}`);
+    const attributes = `Path=/; HttpOnly; SameSite=Lax${secureCookies ? '; Secure' : ''}`;
+    res.setHeader('Set-Cookie', cookieDomain ? [
+      `catan_session=; ${attributes}; Max-Age=0`,
+      `catan_session=${token}; ${attributes}; Domain=${cookieDomain}; Max-Age=31536000`,
+    ] : `catan_session=${token}; ${attributes}; Max-Age=31536000`);
     return hashSession(token);
   }
   function streamRoom(req, res, room, sessionHash) {
@@ -123,6 +128,20 @@ export function createApp({ dataDir = join(ROOT, 'data'), publicDir = ROOT, secu
     try {
       const url = new URL(req.url, 'http://catan.local');
       const path = url.pathname;
+      if (path.startsWith('/api/')) {
+        const origin = req.headers.origin;
+        if (origin && origin === publicOrigin) {
+          res.setHeader('Access-Control-Allow-Origin', publicOrigin);
+          res.setHeader('Access-Control-Allow-Credentials', 'true');
+          res.setHeader('Vary', 'Origin');
+        }
+        if (req.method === 'OPTIONS') {
+          if (!origin || origin !== publicOrigin) fail(403, 'Запрос с другого сайта запрещён.');
+          res.writeHead(204, { 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' });
+          return res.end();
+        }
+        if (cookieDomain && sessionToken(req)) setSession(req, res);
+      }
       if (path === '/api/health' && req.method === 'GET') return json(res, 200, { ok: true });
       if (path.startsWith('/api/')) {
         if (req.method === 'POST') {
@@ -260,6 +279,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     dataDir: process.env.DATA_DIR || join(ROOT, 'data'),
     secureCookies: process.env.SECURE_COOKIES === 'true',
     publicOrigin: process.env.PUBLIC_ORIGIN || '',
+    cookieDomain: process.env.COOKIE_DOMAIN || '',
   });
   const port = Number(process.env.PORT || 4173);
   server.listen(port, process.env.HOST || '127.0.0.1', () => console.log(`Catan listening on port ${port}`));

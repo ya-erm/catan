@@ -7,11 +7,11 @@ import { get } from 'node:http';
 import { createApp } from '../server.js';
 import { freshGame, applyAction, board, boardFor, canSettle, canRoad, score, harborRate, replayBoardAt } from '../game.js';
 
-async function fixture(t) {
+async function fixture(t, options = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'catan-test-'));
   let app, origin;
   async function start() {
-    app = createApp({ dataDir, die: () => 3 });
+    app = createApp({ dataDir, die: () => 3, ...options });
     await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
     origin = `http://127.0.0.1:${app.server.address().port}`;
   }
@@ -37,6 +37,34 @@ async function fixture(t) {
   return { client, get origin() { return origin; }, restart: async () => { await stop(); await start(); } };
 }
 const action = (client, room, type, details = {}) => client.request(`/api/rooms/${room.id}/actions`, { revision: room.revision, type, ...details });
+test('Pages origin can use credentialed API requests and migrate room cookies', async t => {
+  const origin = 'https://catan.ya-erm.ru';
+  const f = await fixture(t, { publicOrigin: origin, cookieDomain: 'catan.ya-erm.ru', secureCookies: true });
+  const preflight = await fetch(`${f.origin}/api/rooms`, { method: 'OPTIONS', headers: {
+    Origin: origin, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'content-type',
+  } });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), origin);
+  assert.equal(preflight.headers.get('access-control-allow-credentials'), 'true');
+  const created = await fetch(`${f.origin}/api/rooms`, { method: 'POST', headers: {
+    Origin: origin, 'Content-Type': 'application/json',
+  }, body: JSON.stringify({ name: 'Игрок' }) });
+  assert.equal(created.status, 201);
+  const room = await created.json();
+  const cookies = created.headers.getSetCookie();
+  assert.ok(cookies.some(value => value.includes('Max-Age=0') && !value.includes('Domain=')));
+  const shared = cookies.find(value => value.includes('Domain=catan.ya-erm.ru'));
+  assert.match(shared, /HttpOnly; SameSite=Lax; Secure/);
+  const cookie = shared.split(';')[0];
+  const resumed = await fetch(`${f.origin}/api/rooms/${room.id}`, { headers: { Origin: origin, Cookie: cookie } });
+  assert.equal(resumed.status, 200);
+  assert.equal((await resumed.json()).me, 0);
+  assert.equal(resumed.headers.get('access-control-allow-origin'), origin);
+  assert.ok(resumed.headers.getSetCookie().some(value => value.includes('Domain=catan.ya-erm.ru')));
+  const blocked = await fetch(`${f.origin}/api/rooms`, { method: 'OPTIONS', headers: { Origin: 'https://other.example' } });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.headers.get('access-control-allow-origin'), null);
+});
 test('host can add bots to an online room and the server plays their turns', async t => {
   const f = await fixture(t);
   const host = f.client();

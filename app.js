@@ -255,6 +255,9 @@ document.addEventListener('focusout', event => {
   if (tooltipTarget && !tooltipTarget.contains(event.relatedTarget)) hideTooltip();
 });
 document.addEventListener('scroll', hideTooltip, true);
+const APP_HOME = new URL('./', import.meta.url);
+const API_ORIGIN = document.querySelector('meta[name="catan-api-origin"]')?.content || location.origin;
+const apiUrl = path => new URL(path, API_ORIGIN).href;
 let roomCode = new URLSearchParams(location.search).get('room')?.toUpperCase() || '';
 let localMode = !roomCode && new URLSearchParams(location.search).get('local') === '1';
 let localSession = null;
@@ -498,7 +501,7 @@ function playRobberMoveSound() {
     body.stop(at + stopLength);
   } catch { /* Robber movement remains available without sound. */ }
 }
-const roadHitDownload = fetch('/assets/audio/road-brick-hit.mp3?v=road-brick1')
+const roadHitDownload = fetch('./assets/audio/road-brick-hit.mp3?v=road-brick1')
   .then(response => response.ok ? response.arrayBuffer() : null).catch(() => null);
 let roadHitBufferPromise;
 function playRoadConstructionSound(context) {
@@ -563,7 +566,7 @@ function playConstructionSound(kind) {
     });
   } catch { /* Construction remains available without sound. */ }
 }
-const resourcePopDownload = fetch('/assets/audio/resource-pop.mp3?v=pop-sample1')
+const resourcePopDownload = fetch('./assets/audio/resource-pop.mp3?v=pop-sample1')
   .then(response => response.ok ? response.arrayBuffer() : null).catch(() => null);
 let resourcePopBufferPromise;
 let resourcePopOffset;
@@ -702,7 +705,7 @@ function openLocalSession(saved, id) {
   state = null;
   roomCode = '';
   localMode = true;
-  history.replaceState(null, '', '/?local=1');
+  history.replaceState(null, '', new URL('?local=1', APP_HOME));
   localSession = saved;
   localSessionId = id;
   connected = true;
@@ -763,7 +766,7 @@ async function request(path, body) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
   try {
-    const response = await fetch(path, { method: body ? 'POST' : 'GET', credentials: 'same-origin', signal: controller.signal,
+    const response = await fetch(apiUrl(path), { method: body ? 'POST' : 'GET', credentials: 'include', signal: controller.signal,
       ...(body ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}) });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Не удалось выполнить действие.');
@@ -1232,7 +1235,7 @@ function animateProduction(production, id, replay = false) {
 async function refreshRoom() { accept(await request(`/api/rooms/${roomCode}`)); }
 function connect() {
   events?.close(); connected = false;
-  events = new EventSource(`/api/rooms/${roomCode}/events`);
+  events = new EventSource(apiUrl(`/api/rooms/${roomCode}/events`), { withCredentials: true });
   events.onopen = () => { connected = true; render(); };
   events.addEventListener('state', event => { connected = true; accept(JSON.parse(event.data)); });
   events.onerror = () => { connected = false; render(); };
@@ -2110,10 +2113,10 @@ document.addEventListener('keydown', event => {
 });
 
 $('#mode-online').addEventListener('click', () => {
-  localMode = false; history.replaceState(null, '', '/'); notice(); render();
+  localMode = false; history.replaceState(null, '', APP_HOME); notice(); render();
 });
 $('#mode-local').addEventListener('click', () => {
-  localMode = true; history.replaceState(null, '', '/?local=1'); notice(); render();
+  localMode = true; history.replaceState(null, '', new URL('?local=1', APP_HOME)); notice(); render();
 });
 let colorDrag = null;
 let ignoreColorClickUntil = 0;
@@ -2308,13 +2311,13 @@ $('#entry-form').addEventListener('submit', async event => {
   try {
     const next = await request(roomCode ? `/api/rooms/${roomCode}/join` : '/api/rooms', roomCode ? { name } : { name, ruleset: selectedRuleset('online'), mapGeneration: selectedMapGeneration('online') });
     try { localStorage.setItem('catan-name', name); } catch { /* Names are optional browser preferences. */ }
-    history.replaceState(null, '', `/?room=${next.id}`);
+    history.replaceState(null, '', new URL(`?room=${next.id}`, APP_HOME));
     accept(next); connect();
   } catch (error) { notice(error.message, true); }
   finally { pending = false; render(); }
 });
 $('#copy-link').addEventListener('click', async () => {
-  const invite = `${location.origin}/?room=${room.id}`;
+  const invite = new URL(`?room=${room.id}`, APP_HOME).href;
   try {
     let copied = false;
     try { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(invite); copied = true; } }
