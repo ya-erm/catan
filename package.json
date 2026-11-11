@@ -1,0 +1,12 @@
+{
+  "name": "catan",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "check": "node --check app.js && node --check game.js && node --check bot.js && node --check hotseat.js && node --check local-save.js && node --check local-saves.js && node --check server.js",
+    "test": "node --test test/*.test.js"
+  }
+}
